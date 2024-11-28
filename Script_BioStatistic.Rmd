@@ -1,0 +1,996 @@
+---
+title: "Bio Statistic on Stroke Data"
+author: "Racca Riccardo"
+date: "2024-02-23"
+output: pdf_document
+output:
+  pdf_document: 
+    latex_engine: lualatex
+urlcolor: blue
+description: R script to explore stroke factors
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r, echo=FALSE}
+options(width = 60)
+```
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(reshape2)
+library(purrr)
+```
+
+```{r}
+set.seed(315163)  # Set the random seed to a specific value
+
+# Load the dataframe 
+patients_df <- read.csv("healthcare-dataset-stroke-data.csv")
+
+# View of the dataframe
+# View(patients_df)
+```
+
+```{r}
+# Columns' type: 
+column_types <- sapply(patients_df, class)
+
+# Display the column types
+print(column_types)
+
+```
+
+```{r}
+# bmi seems to be stored in a categorical way, while it is more reasonable to save it as numeric: 
+
+# Convert bmi to numeric in patients_df
+patients_df$bmi <- as.numeric(patients_df$bmi)
+
+```
+
+```{r}
+# Number of instances 
+n = nrow(patients_df)
+n
+
+# Check for NaN values for each column: 
+nan_count <- colSums(is.na(patients_df))
+print(nan_count)
+
+# Identify rows with NaN values to understand if can be discarded without affecting much the dataframe itself:
+rows_with_nan <- patients_df[!complete.cases(patients_df), ]
+print(rows_with_nan)
+```
+
+```{r}
+# Let's investigate the column bmi: 
+
+# Plot the distribution of bmi with missing values
+ggplot(patients_df, aes(x = bmi)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black") +
+  labs(x = "BMI", y = "Frequency", title = "Distribution of BMI")
+
+
+# It may be, approximately, normally distributed, but it has too many high values, thus it will be discarded from the 0.99 quantile above. After that it will be  performed a Q-Q plot detection with a Shapiro-Wilk test, and lastly, if it is convincing the result, sampling from that distribution. 
+
+# Step 1: Copy BMI column, excluding values above the 98th percentile.
+threshold_up <- quantile(patients_df$bmi, probs = 0.98, na.rm = TRUE)
+truncated_bmi <- patients_df$bmi[patients_df$bmi <= threshold_up]
+
+# Remove NaN values from truncated_bmi
+truncated_bmi <- truncated_bmi[!is.na(truncated_bmi)]
+
+# Plot the distribution of truncated_bmi
+ggplot(data.frame(bmi = truncated_bmi), aes(x = bmi)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black") +
+  labs(x = "BMI", y = "Frequency", title = "Distribution of Truncated BMI")
+
+
+# Step 2: Create Q-Q plot and Shapiro-Wilk:
+qqnorm(truncated_bmi, main = "Q-Q Plot of Truncated BMI")
+qqline(truncated_bmi)
+
+
+# Computing mean and std
+mu <- mean(truncated_bmi)  # Example mean
+sigma <- sd(truncated_bmi)  # Example standard deviation
+
+# Standardize the data
+standardized_data <- (truncated_bmi - mu) / sigma
+
+# Perform Shapiro-Wilk test for normality on the standardized data
+shapiro_test_result <- shapiro.test(standardized_data)
+
+# Print the test result
+print(shapiro_test_result)
+```
+
+```{r}
+# Since it is not reasonable to consider truncated_bmi normally distributed, the missing values will be filled with samples from the sample distribution of bmi itself. 
+
+# Filter out NaN values from the BMI column
+valid_bmi <- patients_df$bmi[!is.na(patients_df$bmi)]
+
+# Find indices of missing values in BMI
+missing_indices <- which(is.na(patients_df$bmi))
+
+# Number of missing values
+num_missing <- length(missing_indices)
+
+# Sample from the observed distribution of BMI (excluding NaN values) to fill missing values
+random_bmi <- sample(valid_bmi, num_missing, replace = TRUE)
+
+# Fill missing values with randomly generated values
+patients_df$bmi[missing_indices] <- random_bmi
+
+```
+
+```{r}
+# Let's investigate the column smoking_status:
+
+# Get the frequencies of each class
+class_frequencies <- table(patients_df$smoking_status)
+
+# Display the unique classes and their frequencies
+print(class_frequencies)
+```
+
+```{r}
+# We notice that also in this column there are missing values, under the name of: "Unknown" class. 
+
+# Subset patients_df for stroke class = 0
+stroke_0_table <- subset(patients_df, stroke == 0)
+
+# Subset patients_df for stroke class = 1
+stroke_1_table <- subset(patients_df, stroke == 1)
+
+# Print the distribution of smoking_status for stroke class = 0
+cat("Distribution of smoking_status for Stroke Class = 0:\n")
+print(table(stroke_0_table$smoking_status))
+
+# Print the distribution of smoking_status for stroke class = 1
+cat("\nDistribution of smoking_status for Stroke Class = 1:\n")
+print(table(stroke_1_table$smoking_status))
+```
+
+```{r}
+# Exclude "unknown" class from sampling
+sample_stroke_0 <- sample(names(table(stroke_0_table$smoking_status[stroke_0_table$smoking_status != "Unknown"])), 
+                          size = sum(stroke_0_table$smoking_status == "Unknown"), 
+                          replace = TRUE)
+
+sample_stroke_1 <- sample(names(table(stroke_1_table$smoking_status[stroke_1_table$smoking_status != "Unknown"])), 
+                          size = sum(stroke_1_table$smoking_status == "Unknown"), 
+                          replace = TRUE)
+
+# Replace "unknown" values in patients_df with sampled values
+patients_df$smoking_status[patients_df$stroke == 0 & patients_df$smoking_status == "Unknown"] <- sample_stroke_0
+patients_df$smoking_status[patients_df$stroke == 1 & patients_df$smoking_status == "Unknown"] <- sample_stroke_1
+
+```
+
+```{r}
+# Let's investigate the column gender: 
+
+# Get the frequencies of each class
+class_frequencies <- table(patients_df$gender)
+
+# Display the unique classes and their frequencies
+print(class_frequencies)
+
+```
+
+```{r}
+# Since there is just one instance with "other" it will be discarded: 
+patients_df <- patients_df[patients_df$gender != "Other", ]
+```
+
+```{r}
+# Let's investigate the column work_type: 
+
+# Get the frequencies of each class
+class_frequencies <- table(patients_df$work_type)
+
+# Display the unique classes and their frequencies
+print(class_frequencies)
+```
+
+```{r}
+# Let's investigate the column Residence_type: 
+
+# Get the frequencies of each class
+class_frequencies <- table(patients_df$Residence_type)
+
+# Display the unique classes and their frequencies
+print(class_frequencies)
+```
+
+```{r}
+# Let's investigate the column ever_married: 
+
+# Get the frequencies of each class
+class_frequencies <- table(patients_df$ever_married)
+
+# Display the unique classes and their frequencies
+print(class_frequencies)
+```
+
+```{r}
+# Predictor variables 
+predictors = colnames(patients_df%>%select(-stroke))
+cat("predictors:", predictors, "\n")
+
+# Target variable
+target = colnames(patients_df%>%select(stroke))
+cat("target:", target, "\n")
+
+# Classes
+classes = patients_df %>%
+            pull(stroke) %>%
+            unique()
+```
+
+```{r}
+# Print the distributions
+
+# Continuous case:
+
+# Continuous variables (PDF)
+continuous_vars <- c("age", "avg_glucose_level", "bmi")
+
+# Plot PDFs separately
+for (var in continuous_vars) {
+  hist(patients_df[[var]], main=paste("PDF of", var), xlab=var, probability=TRUE)
+  lines(density(patients_df[[var]]), col="red")
+}
+```
+
+```{r}
+# Discrete case:
+# Discrete variables (PMF)
+discrete_vars <- c("hypertension", "heart_disease")
+
+# Plot PMFs separately
+par(mfrow=c(1, length(discrete_vars)))
+for (var in discrete_vars) {
+  pmf <- table(patients_df[[var]]) / length(patients_df[[var]])
+  barplot(pmf, main=paste("PMF of", var), xlab=var, ylab="Probability")
+}
+
+```
+
+```{r}
+# Removing id
+patients_df <- subset(patients_df, select = -id)
+
+```
+
+```{r}
+# Check the dataframe: 
+summary(patients_df)
+```
+
+### Biological questions:
+
+a.  What seem to be the highest risk factors in causing strokes?
+
+b.  Are there any demographic factors (such as age, gender, or marital status) associated with strokes?
+
+c.  How does the prevalence of strokes vary by age group, gender, and marital status?
+
+d.  What is the prevalence of hypertension and heart disease in the population?
+
+e.  Show some statistics to produce better conclusion.
+
+f.  Are certain occupational or work-related factors linked with a higher risk of stroke?
+
+g.  Is there a relationship between residence type (urban or rural) and the prevalence of strokes?
+
+h.  What is the average glucose level distribution in the population, and how does this affect the stroke tendency?
+
+i.  Can we predict the likelihood of strokes based on demographic factors and lifestyle choices?
+
+Let's start with the contingency tables to get the relationship between features and target.
+
+```{r}
+## Residence_type 
+
+cat("\nResidence_type:")
+
+contingency_table <- table(patients_df$Residence_type, patients_df$stroke)
+
+# Calculate ratio of stroke occurrences by residence type
+ratio <- prop.table(contingency_table, margin = 1)  # margin = 1 to calculate row-wise ratios
+
+# Print the ratio
+print(ratio*100)
+
+
+## work_type
+
+cat("\nwork_type:")
+
+contingency_table <- table(patients_df$work_type, patients_df$stroke)
+
+# Calculate ratio of stroke occurrences by residence type
+ratio <- prop.table(contingency_table, margin = 1)  # margin = 1 to calculate row-wise ratios
+
+# Print the ratio
+print(ratio*100)
+
+
+## ever_married
+
+cat("\never_married:")
+
+contingency_table <- table(patients_df$ever_married, patients_df$stroke)
+
+# Calculate ratio of stroke occurrences by residence type
+ratio <- prop.table(contingency_table, margin = 1)  # margin = 1 to calculate row-wise ratios
+
+# Print the ratio
+print(ratio*100)
+
+
+## heart_disease
+
+cat("\nheart_disease:")
+
+contingency_table <- table(patients_df$heart_disease, patients_df$stroke)
+
+# Calculate ratio of stroke occurrences by residence type
+ratio <- prop.table(contingency_table, margin = 1)  # margin = 1 to calculate row-wise ratios
+
+# Print the ratio
+print(ratio*100)
+
+
+## hypertension
+
+cat("\nhypertension: ")
+
+contingency_table <- table(patients_df$hypertension, patients_df$stroke)
+
+# Calculate ratio of stroke occurrences by residence type
+ratio <- prop.table(contingency_table, margin = 1)  # margin = 1 to calculate row-wise ratios
+
+# Print the ratio
+print(ratio*100)
+
+## Gender
+
+cat("\nGender: ")
+
+contingency_table <- table(patients_df$gender, patients_df$stroke)
+
+# Calculate ratio of stroke occurrences by residence type
+ratio <- prop.table(contingency_table, margin = 1)  # margin = 1 to calculate row-wise ratios
+
+# Print the ratio
+print(ratio*100)
+```
+
+```{r}
+
+# Perform dummy encoding 
+encoded_df <- cbind(patients_df, model.matrix(~ gender + ever_married + Residence_type + work_type + smoking_status, data = patients_df))  
+
+# Remove the columns encoded to avoid collinearity 
+encoded_df <- select(encoded_df, -ever_married) 
+encoded_df <- select(encoded_df, -Residence_type) 
+encoded_df <- select(encoded_df, -work_type) 
+encoded_df <- select(encoded_df, -smoking_status) 
+encoded_df <- select(encoded_df, -gender)  
+  
+# Display the modified DataFrame 
+# View(encoded_df) 
+```
+
+```{r}
+# Summary statistics of the dataset 
+summary(encoded_df) 
+
+# Predictor variables 
+predictors = colnames(encoded_df%>%select(-stroke))
+cat("predictors:", predictors, "\n")
+
+# Target variable
+target = colnames(encoded_df%>%select(stroke))
+cat("target:", target, "\n")
+
+# Change some names for further benefits in coding, to avoid "-" and the space between words.
+encoded_df$`work_typeSelfemployed` <- encoded_df$`work_typeSelf-employed`
+encoded_df$`work_typeSelf-employed` <- NULL  
+
+encoded_df$`smoking_statusneversmoked` <- encoded_df$`smoking_statusnever smoked`
+encoded_df$`smoking_statusnever smoked` <- NULL  # Optionally remove the old column
+```
+
+```{r}
+# Compute correlation matrix
+correlation_matrix <- cor(encoded_df)
+
+# Convert correlation matrix to long format
+correlation_df <- melt(correlation_matrix)
+
+# Plot heatmap using ggplot2
+ggplot(correlation_df, aes(Var1, Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  labs(x = NULL, y = NULL, title = "Heatmap of Correlation Matrix") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_blank(),
+        panel.grid = element_blank()) +
+  coord_fixed()  # Fix aspect ratio
+
+```
+
+```{r}
+# Get names of features with absolute value of the correlation > 0.1 with "stroke" and remove NA values
+heuristic_threshold = 0.1
+
+significant_correlation_vars <- rownames(correlation_matrix)[which(abs(correlation_matrix["stroke", ]) > heuristic_threshold & !is.na(correlation_matrix["stroke", ]))]
+
+# Print the names of the features
+print(significant_correlation_vars) 
+```
+
+#### a. What seem to be the highest risk factors in causing strokes?
+
+The features showing largest absolute linear correlation with the target "stroke" are: "age" , "hypertension", "heart_disease", "avg_glucose_level", and "ever_marriedYes". All showing positive linear correlation with the target.
+
+They can therefore may be, in first stages, assumed to be possible relevant risk factors.
+
+#### b. Are there any demographic factors (such as age, gender, or marital status) associated with strokes?
+
+Yes, there are. Indeed from the correlation analysis emerged that "age" and marital status may be cause of strokes.
+
+#### c. How does the prevalence of strokes vary by age group, gender, and marital status?
+
+```{r}
+# Age
+
+# Filter dataset to include only rows where stroke = 1
+patients_stroke_df <- patients_df %>% 
+  filter(stroke == 1)
+
+# Visualization of stroke prevalence by age group
+ggplot(patients_stroke_df, aes(x = age)) +
+  geom_bar(fill = "brown") +
+  labs(title = "Stroke Prevalence by Age Group", y = "Count of Patients") +
+  theme_minimal()
+```
+
+```{r}
+# Gender
+
+# Filter dataset to include only rows where stroke = 1
+patients_stroke_df <- patients_df %>% 
+  filter(stroke == 1)
+
+# Visualization of stroke prevalence by gender
+ggplot(patients_stroke_df, aes(x = gender)) +
+  geom_bar(fill = "brown") +
+  labs(title = "Stroke Prevalence by Gender", y = "Count of Patients") +
+  theme_minimal()
+
+```
+
+```{r}
+# Ever_married:
+
+# Filter dataset to include only rows where stroke = 1
+patients_stroke_df <- patients_df %>% 
+  filter(stroke == 1)
+
+# Visualization of stroke prevalence by marital status
+ggplot(patients_stroke_df, aes(x = ever_married)) +
+  geom_bar(fill = "brown") +  # Using maroon color
+  labs(title = "Stroke Prevalence by Marital Status", y = "Count of Patients") +
+  theme_minimal()
+```
+
+#### d. What is the prevalence of hypertension and heart disease in the population?
+
+-   Percentage of people with hypertension:
+
+    ```{r}
+    # Count the number of individuals with hypertension
+    hypertension_count <- sum(patients_df$hypertension == 1)
+
+    # Calculate the total number of individuals in the dataset
+    total_count <- nrow(patients_df)
+
+    # Calculate the percentage of people with hypertension
+    percentage_hypertension <- (hypertension_count / total_count) * 100
+
+    # Print the percentage
+    print(paste("Percentage of people with hypertension:", round(percentage_hypertension, 2), "%"))
+    ```
+
+-   Percentage of people with hypertension and stroke = 1:
+
+    ```{r}
+    # Filter dataset to include only rows where stroke = 1
+    stroke_patients_df <- patients_df %>% 
+      filter(stroke == 1)
+
+    # Calculate the total number of patients with stroke = 1
+    total_stroke_patients <- nrow(stroke_patients_df)
+
+    # Filter dataset to include only rows where both hypertension and stroke = 1
+    hypertension_stroke_df <- stroke_patients_df %>% 
+      filter(hypertension == 1)
+
+    # Calculate the percentage of people with both hypertension and stroke = 1
+    percentage_hypertension_stroke <- nrow(hypertension_stroke_df) / total_stroke_patients * 100
+
+    # Print the result
+    cat("Percentage of people with both hypertension and strokes:", round(percentage_hypertension_stroke, 2), "%\n")
+
+    ```
+
+-   Percentage of people with Heart disease:
+
+    ```{r}
+    # Count the number of individuals with heart disease
+    heart_disease_count <- sum(patients_df$heart_disease== 1)
+
+    # Calculate the total number of individuals in the dataset
+    total_count <- nrow(patients_df)
+
+    # Calculate the percentage of people with heart disease
+    percentage_heart_disease <- (heart_disease_count / total_count) * 100
+
+    # Print the percentage
+    print(paste("Percentage of people with heart disease:", round(percentage_heart_disease, 2), "%"))
+    ```
+
+-   Percentage of people with Heart disease and stroke:
+
+    ```{r}
+    # Filter dataset to include only rows where stroke = 1
+    stroke_patients_df <- patients_df %>% 
+      filter(stroke == 1)
+
+    # Calculate the total number of patients with stroke = 1
+    total_stroke_patients <- nrow(stroke_patients_df)
+
+    # Filter dataset to include only rows where both hypertension and stroke = 1
+    heart_disease_stroke_df <- stroke_patients_df %>% 
+      filter(heart_disease == 1)
+
+    # Calculate the percentage of people with both hypertension and stroke = 1
+    percentage_heart_disease_stroke <- nrow(heart_disease_stroke_df) / total_stroke_patients * 100
+
+    # Print the result
+    cat("Percentage of people with both heart_disease and strokes:", round(percentage_heart_disease_stroke, 2), "%\n")
+    ```
+
+Therefore both "hypertension" and "heart_disease" features show significant different values for the two classes of the target variable.
+
+#### e. Show some statistics to produce better conclusion.
+
+The statistic test that will be proposed is called: Test of Homogeneity. A brief description follows:
+
+Let's suppose to have two categorical variables $A$ and $C$, for which is possible to compute the contingency table. Moreover let $J$ and $I$ be two natural numbers representing the size of the set of possible values of $A$ and $C$ respectively. Finally $A_J$ and $C_I$ are the sets of classes for the random variables.
+
+For each fixed class of $C$, namely $c_{i} \in C_I$, it is counted the number of instances where $a_{j}$ occurs together with $c_{i}$, this for every class $a_j \in A_J$. Now it can be questioned if $A$ statistically affect $C$ by checking whether the probability of $c_i$ is different knowing that a certain $a_j$ co-occurred.
+
+This procedure can be re-iteratively done with all $c_i \in C_I$.
+
+More formally it is possible to set the following hypothesis test:
+
+$H_0: p_{c_j|a_1} = p_{c_j|a_2} = … = p_{c_j|a_I}$ $\forall \hspace{0.1cm} c_j \in J$ and $H_1=\bar{H_0}$
+
+This leads to the following Homogeneity test, which will be computed for the couples:
+
+hypertension-stroke, heart_disease-stroke, genderMale-stroke, everMarried-stroke
+
+```{r}
+# Define function for performing chi-square test
+perform_chi_square_test <- function(data, var1, var2) {
+  # Filter out missing values
+  filtered_data <- na.omit(data[c(var1, var2)])
+  
+  # Create contingency table
+  contingency_table <- table(filtered_data[[var1]], filtered_data[[var2]])
+  
+  # Perform chi-square test
+  chi_square_test <- chisq.test(contingency_table)
+  
+  # Extract test statistics and p-value
+  result <- list(
+    ChiSquareStatistic = chi_square_test$statistic,
+    PValue = chi_square_test$p.value
+  )
+  
+  return(result)
+}
+
+# Perform chi-square test for each variable pair
+homogeneity_test_results <- list()
+
+# Chi-square test for "hypertension-stroke" pair
+homogeneity_test_results[["hypertension-stroke"]] <- perform_chi_square_test(encoded_df, "hypertension", "stroke")
+
+# Chi-square test for "heart_disease-stroke" pair
+homogeneity_test_results[["heart_disease-stroke"]] <- perform_chi_square_test(encoded_df, "heart_disease", "stroke")
+
+# Chi-square test for "genderMale-stroke" pair
+homogeneity_test_results[["genderMale-stroke"]] <- perform_chi_square_test(encoded_df, "genderMale", "stroke")
+
+# Chi-square test for "ever_marriedYes-stroke" pair
+homogeneity_test_results[["ever_marriedYes-stroke"]] <- perform_chi_square_test(encoded_df, "ever_marriedYes", "stroke")
+
+# Print results
+homogeneity_test_results
+```
+
+Everything up to now shows that the information carried by: hypertension, heart disease, age and marital status are statistically linked to strokes. This can be easily seen by checking the p-values, which in those cases is extremely low, way below 0.05 (heuristic but common threshold set in these analysis).
+
+#### f. Are certain occupational or work-related factors linked with a higher risk of stroke?
+
+The first step is to plot the actual distribution of the work feature in the whole population.
+
+```{r}
+# Calculate percentage of each work_type category
+work_type_counts <- patients_df %>%
+  group_by(work_type) %>%
+  summarise(count = n()) %>%
+  mutate(percentage = (count / sum(count)) * 100)
+
+# Plot bar graph of work_type with percentage annotations
+ggplot(work_type_counts, aes(x = work_type, y = count)) +
+  geom_bar(stat = "identity", fill = "brown") +
+  geom_text(aes(label = paste0(round(percentage), "%")), vjust = -0.5, color = "black") +
+  labs(title = "Distribution of Work Type", x = "Work Type", y = "Count") +
+  theme_minimal()
+
+```
+
+After this is time to focus on the fraction of people who had stroke:
+
+```{r}
+# Filter the dataset to include only individuals with stroke = 1
+patients_stroke_df <- patients_df %>%
+  filter(stroke == 1)
+
+# Calculate the count and percentage of each work_type category among individuals with stroke = 1
+work_type_counts <- patients_stroke_df %>%
+  group_by(work_type) %>%
+  summarise(count = n()) %>%
+  mutate(percentage = (count / sum(count)) * 100)
+
+# Plot bar graph of work_type with percentage annotations
+ggplot(work_type_counts, aes(x = work_type, y = count)) +
+  geom_bar(stat = "identity", fill = "brown") +
+  geom_text(aes(label = paste0(round(percentage), "%")), vjust = -0.5, color = "black") +
+  labs(title = "Distribution of Work Type Among Individuals with Stroke", x = "Work Type", y = "Count") +
+  theme_minimal()
+
+```
+
+From these bar-graphs it emerges that, nobody who has "never-worked" suffered for stroke, that is why there is no bar in the second picture. For work_type equal to Govt_job and Private, the percentages are almost the same, while they differ significantly the for children and self-employed. The former with much lower fraction than before and the latter approximately doubled w.r.t. the first graph.
+
+From this analysis seems that self-employed might be the class with higher risk of stroke. To consolidate the results, it is plotted below the chi-squared test of these classes.
+
+```{r}
+# Perform chi-square test for each variable pair
+work_homogeneity_test_results <- list()
+
+# Chi-square test for "work_typeChildren-stroke" pair
+work_homogeneity_test_results[["work_typePrivate-stroke"]] <- perform_chi_square_test(encoded_df, "work_typePrivate", "stroke")
+
+# Chi-square test for "work_typeGovt_job-stroke" pair
+work_homogeneity_test_results[["work_typeGovt_job-stroke"]] <- perform_chi_square_test(encoded_df, "work_typeGovt_job", "stroke")
+
+
+# Chi-square test for "work_typeSelf-employed-stroke" pair
+work_homogeneity_test_results[["work_typeSelfemployed-stroke"]] <- perform_chi_square_test(encoded_df, "work_typeSelfemployed", "stroke")
+
+# Print results
+work_homogeneity_test_results
+```
+
+#### g. Is there a relationship between residence type (urban or rural) and the prevalence of strokes?
+
+The same framework just set will be proposed again below, the first block will represent the distribution for the whole dataset for the Residence type, while the second one will be focused on the stroke sub-dataset.
+
+```{r}
+
+# Calculate percentage of each Residence_type category
+Residence_type_counts <- patients_df %>%
+  group_by(Residence_type) %>%
+  summarise(count = n()) %>%
+  mutate(percentage = (count / sum(count)) * 100)
+
+# Plot bar graph of work_type with percentage annotations
+ggplot(Residence_type_counts, aes(x = Residence_type, y = count)) +
+  geom_bar(stat = "identity", fill = "brown") +
+  geom_text(aes(label = paste0(round(percentage), "%")), vjust = -0.5, color = "black") +
+  labs(title = "Distribution of Residence Type", x = "Residence Type", y = "Count") +
+  theme_minimal()
+```
+
+```{r}
+# Filter the dataset to include only individuals with stroke = 1
+patients_stroke_df <- patients_df %>%
+  filter(stroke == 1)
+
+# Calculate the count and percentage of each Residence_type category among individuals with stroke = 1
+
+# Calculate percentage of each Residence_type category
+Residence_type_counts <- patients_stroke_df %>%
+  group_by(Residence_type) %>%
+  summarise(count = n()) %>%
+  mutate(percentage = (count / sum(count)) * 100)
+
+# Plot bar graph of work_type with percentage annotations
+ggplot(Residence_type_counts, aes(x = Residence_type, y = count)) +
+  geom_bar(stat = "identity", fill = "brown") +
+  geom_text(aes(label = paste0(round(percentage), "%")), vjust = -0.5, color = "black") +
+  labs(title = "Distribution of Residence Type with stroke", x = "Residence Type", y = "Count") +
+  theme_minimal()
+```
+
+For these two graphs seems that living in an urban environment might be slightly worse than the rural one. Let's see how much this can be represented in statistical terms:
+
+```{r}
+# Perform chi-square test for each variable pair
+Residence_homogeneity_test_results <- list()
+
+# Chi-square test for "work_typeChildren-stroke" pair
+Residence_homogeneity_test_results[["Residence_typeUrban-stroke"]] <- perform_chi_square_test(encoded_df, "Residence_typeUrban", "stroke")
+
+# Print results
+Residence_homogeneity_test_results
+```
+
+The homogeneity test does not really give us any decisive result, therefore it is not possible to reject the null hypothesis of these two classes to be un-ifluent for strokes.\
+
+#### h. What is the average glucose level distribution in the population, and how does this affect the stroke tendency?
+
+Let's firstly plot the distribution of the glucose level for the whole population, and then the one restricted to the stroke cases.
+
+```{r}
+# Plot distribution of glucose level for the whole population
+ggplot(patients_df, aes(x = avg_glucose_level)) +
+  geom_density(fill = "skyblue", alpha = 0.7) +
+  labs(title = "Distribution of Glucose Level (Whole Population)", x = "Average Glucose Level", y = "Density") +
+  theme_minimal()
+
+# Plot distribution of glucose level for individuals with stroke = 1
+ggplot(patients_df %>% filter(stroke == 1), aes(x = avg_glucose_level)) +
+  geom_density(fill = "orange", alpha = 0.7) +
+  labs(title = "Distribution of Glucose Level (Stroke Cases)", x = "Average Glucose Level", y = "Density") +
+  theme_minimal()
+
+```
+
+From these distribution it looks like the second one is more concentrated on high values than the first one, while keeping always the maximum peak slightly below 100. Moreover the yellow density shows a maximum peak which is almost half of the former one. So it seems that the distribution of average glucose level might be useful to detect something related to strokes.
+
+Since the distribution is far to be assumed normal, no t-test can be performed.
+
+#### i. Can we predict the likelihood of strokes based on demographic factors and lifestyle choices?
+
+EXPLANATION OF WHAT IS GOING TO HAPPEN:
+
+-   We are working with a vector $\textbf{Y}$ consisting of $m$ dichotomous response variables (1 or 0).
+
+-   We assume the variables are distributed as a binomial, therefore with $n$ known and equal to 1 (=Bernoulli).
+
+-   We model each component according to the law: $g(\pi_i) = \log\left(\frac{\pi_i}{1-\pi_i}\right) = X_i \beta$.
+
+-   Written in matrix form: $\textbf{g}(\pi) = X\beta$.
+
+-   At this point, we are interested in understanding the relationship between the mean of the variables $Y_i$ and the coefficient vector $\beta$ according to the relationship specified above, taking into account the covariate vector $\textbf{X}$, which may not necessarily be complete with all available covariates, but some of them may be chosen.
+
+-   We want to estimate the generic $Y_i$ with its expected value, which corresponds to the estimated success probability $\hat{\pi}_i$.
+
+```{r}
+# Fit a logistic regression model
+stroke_model <- glm(stroke ~ age + hypertension + heart_disease + avg_glucose_level + bmi +
+                      genderMale + ever_marriedYes + Residence_typeUrban +
+                      work_typeGovt_job + work_typeNever_worked + work_typePrivate + work_typeSelfemployed +
+                      smoking_statusneversmoked + smoking_statussmokes,
+                    data = encoded_df, family = "binomial")
+
+# Summary of the model
+summary(stroke_model)
+```
+
+It is possible to implement a procedure to minimize in a greed way the AIC, details follow:
+
+The **`step()`** function in R, by default, aims to minimize the AIC (Akaike Information Criterion) value during the stepwise model selection process. The goal is to find the model with the lowest AIC, not the highest AIC.
+
+The stepwise model selection algorithm implemented in **`step()`** typically starts with a full or initial model that includes all predictors. It then iterativly considers adding or removing variables one at a time, evaluating the AIC for each modification.
+
+The process followed by **`step()`** can be summarized as follows:
+
+1.  Fit the complete model that includes all predictors.
+
+2.  For each predictor, fit another model that **excludes** that predictor.
+
+3.  Compare the AIC of all these models, including the one with no predictors (\<none\>).
+
+4.  Select the model with the lowest AIC among all the considered models.
+
+5.  Repeat steps 2 to 4 until the best model is found, typically indicated by \<none\> having the highest AIC score.
+
+The goal is to find a model with the best trade-off between goodness of fit and model complexity, as reflected in the lowest AIC value.
+
+In summary, the correct interpretation is that the **`step()`** function in R aims to minimize the AIC during stepwise model selection, searching for the model with the lowest AIC value.
+
+Notice how this procedure can lead to sub-optimal models, since it doesn't try all possible predictors combinations, but rather finds a greedy solution to this search.
+
+```{r}
+step_stroke <- step(stroke_model)
+summary(step_stroke)
+```
+
+This iterative method confirms what has been said in the preliminary analysis conducted on single features, indeed the most important information available are the ones linked with age, hypertension, heart-health and level of glucose together with the work situation and smoking status. It was crucial to perform such analysis because, sometimes, the conclusions inferred by simply checking one-by-one each feature against the target may be biased due to unwanted linkage between features themselves, as in this case happens with the marital status, which may be biased from the age.
+
+#### Conclusions:
+
+Yes, we can predict the likelihood of strokes based on demographic factors and lifestyle choices. The coefficients just found are, indeed, the tool used to make the prediction of the probability, once it is given the vector of features, for an individual $i$ to get a stroke.
+
+In formulas:
+
+$$ \pi_i = \frac{e^{\beta_0 + \beta_1 x_{i, 1} + ... + \beta_p x_{i, p}}}{1+ e^{\beta_0 + \beta_1 x_{i, 1} + ... + \beta_p x_{i, p}}}$$ Where:
+
+-   $\pi_i$ is the probability of the instance $i$ given as input;
+
+-   $x_{i, 1}, ..., x_{i, p}$ are the features of the instance $i$ ;
+
+-   $\beta_0, ..., \beta_p$ are the coefficients estimated in the glm-model shown above.
+
+### Predictions
+
+Working with generalized linear models, we can choose whether to get the logit estimate
+
+$$ g(\mu) = \eta = X \hat\beta $$
+
+or the response probabilities, which is simply the inverse of the logit.
+
+-   This means that we can choose, for example in the case of the Bernoulli distribution, to obtain $g(\pi)$ or to obtain $\pi$.
+
+-   Remind that in the binomial GLM stands: $g(\pi) = \log(\frac{\pi}{1- \pi})$.
+
+```{r}
+# In here it is printed out (the first six) the probabilties of the instances in the dataset to have a stroke, based on their features:
+head(stroke_model$fitted.values)
+
+```
+
+```{r}
+# The distribution:
+
+hist(stroke_model$fitted.values, 
+     main = "Distribution of Fitted Values", 
+     xlab = "Fitted Values",
+     col = "brown",  # Change the color to brown
+     breaks = 20)   # Adjust the number of bins as needed
+
+```
+
+```{r}
+# Set threshold
+threshold <- 0.40
+
+# Create binary predictions based on the threshold
+binary_predictions <- ifelse(stroke_model$fitted.values > threshold, 1, 0)
+
+# Compute evaluation metrics
+confusion_matrix <- table(encoded_df$stroke, binary_predictions)
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+precision <- confusion_matrix[2, 2] / sum(confusion_matrix[, 2])
+recall <- confusion_matrix[2, 2] / sum(confusion_matrix[2, ])
+f1_score <- 2 * precision * recall / (precision + recall)
+
+# Print evaluation metrics
+cat("Accuracy:", accuracy, "\n")
+cat("Precision:", precision, "\n")
+cat("Recall:", recall, "\n")
+cat("F1 Score:", f1_score, "\n")
+
+# Get the number of predicted values as 1
+num_predicted_as_1 <- sum(binary_predictions == 1)
+
+# Print the number of predicted values as 1
+cat("Number of predicted stroke as 1:", num_predicted_as_1, "\n")
+```
+
+```{r}
+# Define the thresholds
+thresholds <- c(0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50)
+
+# Initialize vectors to store precision values and number of predicted values as 1
+precisions <- numeric(length(thresholds))
+num_predicted_as_1 <- numeric(length(thresholds))
+
+# Loop over each threshold
+for (i in seq_along(thresholds)) {
+  # Create binary predictions based on the threshold
+  binary_predictions <- ifelse(stroke_model$fitted.values > thresholds[i], 1, 0)
+  
+  # Compute precision
+  confusion_matrix <- table(encoded_df$stroke, binary_predictions)
+  precision <- confusion_matrix[2, 2] / sum(confusion_matrix[, 2])
+  
+  # Store precision value and number of predicted values as 1
+  precisions[i] <- precision
+  num_predicted_as_1[i] <- sum(binary_predictions == 1)
+}
+
+# Plot precision against thresholds
+plot(thresholds, precisions, type = "b", 
+     xlab = "Threshold (Predicted as 1)", ylab = "Precision",
+     main = "Precision vs. Threshold",
+     col = "blue", pch = 19, cex = 1.5, lwd = 2)
+
+# Add number of predicted values as 1 below each threshold on x-axis labels
+mtext(text = paste("\n\n", num_predicted_as_1), side = 1, at = thresholds, line = 2)
+
+# Add grid lines
+grid()
+
+# Add a legend
+legend("topright", legend = "Precision", col = "blue", pch = 19, lwd = 2)
+
+```
+
+```{r}
+# Define the thresholds
+thresholds <- c(0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50)
+
+# Initialize vectors to store precision and recall values, and number of predicted values as 1
+precisions <- numeric(length(thresholds))
+recalls <- numeric(length(thresholds))
+num_predicted_as_1 <- numeric(length(thresholds))
+
+# Loop over each threshold
+for (i in seq_along(thresholds)) {
+  # Create binary predictions based on the threshold
+  binary_predictions <- ifelse(stroke_model$fitted.values > thresholds[i], 1, 0)
+  
+  # Compute confusion matrix
+  confusion_matrix <- table(encoded_df$stroke, binary_predictions)
+  
+  # Compute precision
+  precision <- confusion_matrix[2, 2] / sum(confusion_matrix[, 2])
+  
+  # Compute recall
+  recall <- confusion_matrix[2, 2] / sum(confusion_matrix[2, ])
+  
+  # Store precision, recall, and number of predicted values as 1
+  precisions[i] <- precision
+  recalls[i] <- recall
+  num_predicted_as_1[i] <- sum(binary_predictions == 1)
+}
+
+# Plot precision against thresholds
+plot(thresholds, precisions, type = "b", 
+     xlab = "Threshold (Predicted as 1)", ylab = "Precision / Recall",
+     main = "Precision and Recall vs. Threshold",
+     col = "blue", pch = 19, cex = 1.5, lwd = 2)
+
+# Add recall to the plot
+points(thresholds, recalls, type = "b", col = "red", pch = 19, lwd = 2)
+
+# Add number of predicted values as 1 below each threshold on x-axis labels
+mtext(text = paste("\n\n", num_predicted_as_1), side = 1, at = thresholds, line = 2)
+
+# Add grid lines
+grid()
+
+# Add a legend
+legend("topright", legend = c("Precision", "Recall"), col = c("blue", "red"), pch = 19, lwd = 2)
+
+```
